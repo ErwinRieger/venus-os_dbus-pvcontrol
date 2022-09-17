@@ -107,8 +107,11 @@ class PVControl(object):
         p = self._dbusmonitor.get_value(self.vebus_service, "/Ac/Out/L1/P")
         if p > self.MaxPMp:
             self._dbusservice["/A/MaxPMp"] = p
-            self._dbusservice["/A/MaxPRs"] = self.watt
             self.MaxPMp = p
+
+            # State 8: passthrough, state 9: inverting, state 10: assisting
+            if self._dbusmonitor.get_value(self.vebus_service, "/State") == 10:
+                self._dbusservice["/A/MaxPRs"] = self.watt
 
         # test timer timeout and switch off multiplus
         dt = self.endTimer - time.time()
@@ -119,7 +122,7 @@ class PVControl(object):
 
         self._dbusservice["/A/P"] = self.watt
         if dt > 0:
-            self._dbusservice["/A/Timer"] = dt
+            self._dbusservice["/A/Timer"] = int(dt)
         else:
             self._dbusservice["/A/Timer"] = 0
 
