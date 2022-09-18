@@ -36,7 +36,7 @@ class PVControl(object):
                 'com.victronenergy.vebus': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy},
                 }
 
-        self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self._value_changed)
+        self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self.value_changed_wrapper)
 
 	# Get dynamic servicename for rs6 (ve.can)
         # self.vecan_service = self.waitForService('com.victronenergy.inverter')
@@ -98,10 +98,10 @@ class PVControl(object):
         self.MaxPMp = 0
         self.MaxPRs = 0
 
-        # GLib.timeout_add(10000, self._update)
-        GLib.timeout_add(10000, exit_on_error, self._update)
+        # GLib.timeout_add(10000, self.update)
+        GLib.timeout_add(10000, exit_on_error, self.update)
 
-    def _update(self):
+    def update(self):
 
         # log maximum power consumption (rs6 + mp2)
         p = self._dbusmonitor.get_value(self.vebus_service, "/Ac/Out/L1/P")
@@ -128,8 +128,12 @@ class PVControl(object):
 
         return True
 
-    def _value_changed(self, _service, path, value, changes, deviceInstance=None):
-        # logging.info('_value_changed %s %s %s' % (_service, path, str(changes)))
+    # Calls value_changed with exception handling
+    def value_changed_wrapper(self, *args, **kwargs):
+        exit_on_error(self.value_changed, *args, **kwargs)
+
+    def value_changed(self, service, path, options, changes, deviceInstance):
+        # logging.info('value_changed %s %s %s' % (service, path, str(changes)))
 
         if path == "/Mode":
 
