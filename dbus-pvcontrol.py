@@ -194,7 +194,13 @@ class PVControl(object):
 # See their manual to explain the % in %20
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
+
+    # set timezone used for log entries
+    os.environ['TZ'] = 'Europe/Berlin'
+    time.tzset()
+
+    format = "%(asctime)s %(levelname)s:%(name)s:%(message)s"
+    logging.basicConfig(level=logging.DEBUG, format=format, datefmt="%d.%m.%y_%X_%Z")
 
     from dbus.mainloop.glib import DBusGMainLoop
     # Have a mainloop, so we can send/receive asynchronous calls to and from dbus
