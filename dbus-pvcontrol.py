@@ -33,7 +33,7 @@ class PVControl(object):
         dummy = {'code': None, 'whenToLog': 'configChange', 'accessLevel': None}
         dbus_tree= {
                 'com.victronenergy.inverter': { '/Ac/Out/L1/P': dummy }  ,
-                'com.victronenergy.vebus': { '/Mode': dummy, '/Ac/Out/L1/P': dummy},
+                'com.victronenergy.vebus': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy},
                 }
 
         self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self._value_changed)
