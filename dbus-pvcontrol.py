@@ -18,7 +18,8 @@ from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
 from ve_utils import exit_on_error
 
-onPower =   2750 # watts of rs6000 power when we turn on slave the multiplus, depends on ac current limit of multiplus
+# onPower =   2750 # watts of rs6000 power when we turn on slave the multiplus, depends on ac current limit of multiplus (17.5A)
+onPower =   3000 # watts of rs6000 power when we turn on slave the multiplus, depends on ac current limit of multiplus (19.0A)
 OnTimeout = 1800
 
 servicename='com.victronenergy.pvcontrol'
