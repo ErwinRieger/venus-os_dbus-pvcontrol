@@ -197,8 +197,8 @@ class PVControl(object):
 def main():
 
     # set timezone used for log entries
-    os.environ['TZ'] = 'Europe/Berlin'
-    time.tzset()
+    # os.environ['TZ'] = 'Europe/Berlin'
+    # time.tzset()
 
     format = "%(asctime)s %(levelname)s:%(name)s:%(message)s"
     logging.basicConfig(level=logging.DEBUG, format=format, datefmt="%d.%m.%y_%X_%Z")
