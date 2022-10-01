@@ -105,7 +105,8 @@ class PVControl(object):
     def update(self):
 
         # log maximum power consumption (rs6 + mp2)
-        p = self._dbusmonitor.get_value(self.vebus_service, "/Ac/Out/L1/P")
+        # Note: /Ac/Out/L1/P of multiplus is none if it was never started
+        p = self._dbusmonitor.get_value(self.vebus_service, "/Ac/Out/L1/P") or 0
         if p > self.MaxPMp:
             self._dbusservice["/A/MaxPMp"] = p
             self.MaxPMp = p
