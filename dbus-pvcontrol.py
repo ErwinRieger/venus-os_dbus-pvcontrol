@@ -25,6 +25,14 @@ OnTimeout = 1800
 servicename='com.victronenergy.pvcontrol'
 # servicename='de.ibrieger.pvcontrol' # xxx does not work with dbus-spy...
 
+# BMS function "CVL Charge voltage limit"
+HIGHESTCELLVOLTAGE = 3.45
+FLOATCELLVOLTAGE = HIGHESTCELLVOLTAGE - 0.05 # hysteresis for charger control
+
+# inverter control
+LOWESTCELLVOLTAGE = 3.0      # turn off inverter
+RECONNECTCELLVOLTAGE = 3.275 # about 50% SOC, note: inverter will reconnect at 52v
+
 # Manage on/off mode and state of multiplus, rs inverter and rs mpppt
 class DeviceControl(object):
 
@@ -205,33 +213,37 @@ class PVControl(object):
             self.mp2Control.turnOff()
 
         minCellVoltage = self._dbusmonitor.get_value(self.batt_service, "/System/MinCellVoltage")
-        logging.info(f"minCellVoltage: {minCellVoltage}")
+        logging.info(f"minCellVoltage: {minCellVoltage}v, LOWESTCELLVOLTAGE: {LOWESTCELLVOLTAGE}v, RECONNECTCELLVOLTAGE: {RECONNECTCELLVOLTAGE}v")
 
-        # disconnect from battery if a cell voltage is below min voltage
-        if minCellVoltage < 3.0 and self.inverterControl.isOn(): # xxx hardcoded
-            # turn off inverter
-            logging.info(f"turn off inverter, pack voltage: {self._dbusmonitor.get_value(self.pv_charger, '/Dc/0/Voltage')}")
-            self.inverterControl.turnOff()
+        if minCellVoltage != None:
 
-        # re-connect to battery if all cells are above min voltage
-        if minCellVoltage > 3.275 and not self.inverterControl.isOn(): # xxx about 50% SOC, hardcoded
-            # turn on inverter
-            logging.info(f"turn on inverter, pack voltage: {self._dbusmonitor.get_value(self.pv_charger, '/Dc/0/Voltage')}")
-            self.inverterControl.turnOn()
+            # disconnect from battery if a cell voltage is below min voltage
+            if minCellVoltage < LOWESTCELLVOLTAGE and self.inverterControl.isOn(): # xxx hardcoded
+                # turn off inverter
+                logging.info(f"turn off inverter, pack voltage: {self._dbusmonitor.get_value(self.pv_charger, '/Dc/0/Voltage')}")
+                self.inverterControl.turnOff()
+
+            # re-connect to battery if all cells are above min voltage
+            if minCellVoltage > RECONNECTCELLVOLTAGE and not self.inverterControl.isOn(): # xxx about 50% SOC, hardcoded
+                # turn on inverter
+                logging.info(f"turn on inverter, pack voltage: {self._dbusmonitor.get_value(self.pv_charger, '/Dc/0/Voltage')}")
+                self.inverterControl.turnOn()
 
         maxCellVoltage = self._dbusmonitor.get_value(self.batt_service, "/System/MaxCellVoltage")
-        logging.info(f"maxCellVoltage: {maxCellVoltage}")
+        logging.info(f"maxCellVoltage: {maxCellVoltage}, HIGHESTCELLVOLTAGE: {HIGHESTCELLVOLTAGE}v, FLOATCELLVOLTAGE: {FLOATCELLVOLTAGE}v")
 
-        # stop charging if a cell voltage is above 3.45v
-        if maxCellVoltage > 3.45: # xxx hardcoded
-            # freeze charging voltage
-            self.packVolt = self._dbusmonitor.get_value(self.pv_charger, "/Dc/0/Voltage")
-            logging.info(f"throttling charger, pack voltage: {self.packVolt}")
+        if maxCellVoltage != None:
+
+            # stop charging if a cell voltage is above 3.45v
+            if maxCellVoltage > HIGHESTCELLVOLTAGE:
+                # freeze charging voltage
+                self.packVolt = self._dbusmonitor.get_value(self.pv_charger, "/Dc/0/Voltage")
+                logging.info(f"throttling charger, pack voltage: {self.packVolt}")
             
-        # start charging if all cells below 3.4v
-        elif maxCellVoltage < 3.40: # xxx hardcoded
-            self.packVolt = 55.2 # 3.345 v per cell
-            logging.info(f"un-throttling charger, pack voltage: {self._dbusmonitor.get_value(self.pv_charger, '/Dc/0/Voltage')}")
+            # start charging if all cells below 3.4v
+            elif maxCellVoltage < FLOATCELLVOLTAGE:
+                self.packVolt = 55.2 # 3.345 v per cell
+                logging.info(f"un-throttling charger, pack voltage: {self._dbusmonitor.get_value(self.pv_charger, '/Dc/0/Voltage')}")
 
         logging.info(f"setting mppt.ChargeVoltage: {self.packVolt}")
         self._dbusmonitor.set_value(self.pv_charger, "/Link/ChargeVoltage", self.packVolt) # value stays for 60 minutes
