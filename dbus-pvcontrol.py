@@ -69,10 +69,10 @@ class DeviceControl(object):
 
         if service == self.serviceName:
             if path == self.controlname:
-                logging.info(f"set mode to:: {value}")
+                logging.info(f"{self.serviceName}:{self.controlname}: set mode to:: {value}")
                 self.devmode = value
             elif path == "/State":
-                logging.info(f"set state to:: {value}")
+                logging.info(f"{self.serviceName}:{self.controlname}: set state to:: {value}")
                 self.state = value
 
     def getState(self):
@@ -212,6 +212,7 @@ class PVControl(object):
             # self._dbusmonitor.set_value(self.vebus_service, "/Mode", 4)
             self.mp2Control.turnOff()
 
+        """
         minCellVoltage = self._dbusmonitor.get_value(self.batt_service, "/System/MinCellVoltage")
         logging.info(f"minCellVoltage: {minCellVoltage}v, LOWESTCELLVOLTAGE: {LOWESTCELLVOLTAGE}v, RECONNECTCELLVOLTAGE: {RECONNECTCELLVOLTAGE}v")
 
@@ -247,6 +248,7 @@ class PVControl(object):
 
         logging.info(f"setting mppt.ChargeVoltage: {self.packVolt}")
         self._dbusmonitor.set_value(self.pv_charger, "/Link/ChargeVoltage", self.packVolt) # value stays for 60 minutes
+        """
 
         self._dbusservice["/A/P"] = self.watt
         if dt > 0:
