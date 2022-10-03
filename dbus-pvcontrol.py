@@ -30,8 +30,8 @@ HIGHESTCELLVOLTAGE = 3.45
 FLOATCELLVOLTAGE = HIGHESTCELLVOLTAGE - 0.05 # hysteresis for charger control
 
 # inverter control
-LOWESTCELLVOLTAGE = 3.0      # turn off inverter
-RECONNECTCELLVOLTAGE = 3.275 # about 50% SOC, note: inverter will reconnect at 52v
+# LOWESTCELLVOLTAGE = 3.0      # turn off inverter
+# RECONNECTCELLVOLTAGE = 3.275 # about 50% SOC, note: inverter will reconnect at 52v
 
 # Manage on/off mode and state of multiplus, rs inverter and rs mpppt
 class DeviceControl(object):
@@ -69,10 +69,10 @@ class DeviceControl(object):
 
         if service == self.serviceName:
             if path == self.controlname:
-                logging.info(f"{self.serviceName}:{self.controlname}: set mode to:: {value}")
+                logging.info(f"{self.serviceName}:{path}: set mode to:: {value}")
                 self.devmode = value
             elif path == "/State":
-                logging.info(f"{self.serviceName}:{self.controlname}: set state to:: {value}")
+                logging.info(f"{self.serviceName}:{path}: set state to:: {value}")
                 self.state = value
 
     def getState(self):
@@ -87,18 +87,18 @@ class PVControl(object):
         dummy = {'code': None, 'whenToLog': 'configChange', 'accessLevel': None}
         dbus_tree= {
                 # rs 6000
-                'com.victronenergy.inverter': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy }  ,
+                'com.victronenergy.inverter': { '/Mode': dummy, '/Ac/Out/L1/P': dummy }  ,
                 # Multiplus 8000
                 'com.victronenergy.vebus': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy},
                 # watch cell voltages
-                'com.victronenergy.battery': {
-                    "/System/MaxCellVoltage": dummy,
+                # 'com.victronenergy.battery': {
+                    # "/System/MaxCellVoltage": dummy,
                     # "/System/MaxVoltageCellId": dummy,
-                    "/System/MinCellVoltage": dummy,
+                    # "/System/MinCellVoltage": dummy,
                     # "/System/MinVoltageCellId": dummy,
-                    },
+                    # },
                 # read batt. voltage and control charging voltage
-                'com.victronenergy.solarcharger': { '/Link/ChargeVoltage': dummy, "/Dc/0/Voltage": dummy},
+                # 'com.victronenergy.solarcharger': { '/Link/ChargeVoltage': dummy, "/Dc/0/Voltage": dummy},
                 }
 
         self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self.value_changed_wrapper)
@@ -122,24 +122,6 @@ class PVControl(object):
             sys.exit(0)
         self.vebus_service = serviceList[0]
         logging.info("service of mp2: " + self.vebus_service)
-
-	# Get dynamic servicename for serial-battery
-        serviceList = self._get_service_having_lowest_instance('com.victronenergy.battery')
-        if not serviceList:
-            # Restart process
-            logging.info("service com.victronenergy.battery not registered yet, exiting...")
-            sys.exit(0)
-        self.batt_service = serviceList[0]
-        logging.info("service of battery: " +  self.batt_service)
-
-	# Get dynamic servicename for pv charger
-        serviceList = self._get_service_having_lowest_instance('com.victronenergy.solarcharger')
-        if not serviceList:
-            # Restart process
-            logging.info("service com.victronenergy.solarcharger not registered yet, exiting...")
-            sys.exit(0)
-        self.pv_charger = serviceList[0]
-        logging.info("pv service: " +  self.pv_charger)
 
         self._dbusservice = VeDbusService(servicename)
 
@@ -176,7 +158,6 @@ class PVControl(object):
         # self.mp2state = self._dbusmonitor.get_value(self.vebus_service, "/Mode")
         # logging.info('initial mp2 mode: %d' % self.mp2state)
 
-        self.inverterControl = DeviceControl(self._dbusmonitor, self.vecan_service, "/Mode", 4, 2) # inverter rs 6000
         self.mp2Control = DeviceControl(self._dbusmonitor, self.vebus_service, "/Mode", 4, 3)      # multiplus
 
         self.endTimer = 0
@@ -212,44 +193,6 @@ class PVControl(object):
             # self._dbusmonitor.set_value(self.vebus_service, "/Mode", 4)
             self.mp2Control.turnOff()
 
-        """
-        minCellVoltage = self._dbusmonitor.get_value(self.batt_service, "/System/MinCellVoltage")
-        logging.info(f"minCellVoltage: {minCellVoltage}v, LOWESTCELLVOLTAGE: {LOWESTCELLVOLTAGE}v, RECONNECTCELLVOLTAGE: {RECONNECTCELLVOLTAGE}v")
-
-        if minCellVoltage != None:
-
-            # disconnect from battery if a cell voltage is below min voltage
-            if minCellVoltage < LOWESTCELLVOLTAGE and self.inverterControl.isOn(): # xxx hardcoded
-                # turn off inverter
-                logging.info(f"turn off inverter, pack voltage: {self._dbusmonitor.get_value(self.pv_charger, '/Dc/0/Voltage')}")
-                self.inverterControl.turnOff()
-
-            # re-connect to battery if all cells are above min voltage
-            if minCellVoltage > RECONNECTCELLVOLTAGE and not self.inverterControl.isOn(): # xxx about 50% SOC, hardcoded
-                # turn on inverter
-                logging.info(f"turn on inverter, pack voltage: {self._dbusmonitor.get_value(self.pv_charger, '/Dc/0/Voltage')}")
-                self.inverterControl.turnOn()
-
-        maxCellVoltage = self._dbusmonitor.get_value(self.batt_service, "/System/MaxCellVoltage")
-        logging.info(f"maxCellVoltage: {maxCellVoltage}, HIGHESTCELLVOLTAGE: {HIGHESTCELLVOLTAGE}v, FLOATCELLVOLTAGE: {FLOATCELLVOLTAGE}v")
-
-        if maxCellVoltage != None:
-
-            # stop charging if a cell voltage is above 3.45v
-            if maxCellVoltage > HIGHESTCELLVOLTAGE:
-                # freeze charging voltage
-                self.packVolt = self._dbusmonitor.get_value(self.pv_charger, "/Dc/0/Voltage")
-                logging.info(f"throttling charger, pack voltage: {self.packVolt}")
-            
-            # start charging if all cells below 3.4v
-            elif maxCellVoltage < FLOATCELLVOLTAGE:
-                self.packVolt = 55.2 # 3.345 v per cell
-                logging.info(f"un-throttling charger, pack voltage: {self._dbusmonitor.get_value(self.pv_charger, '/Dc/0/Voltage')}")
-
-        logging.info(f"setting mppt.ChargeVoltage: {self.packVolt}")
-        self._dbusmonitor.set_value(self.pv_charger, "/Link/ChargeVoltage", self.packVolt) # value stays for 60 minutes
-        """
-
         self._dbusservice["/A/P"] = self.watt
         if dt > 0:
             self._dbusservice["/A/Timer"] = int(dt)
@@ -265,7 +208,6 @@ class PVControl(object):
     def value_changed(self, service, path, options, changes, deviceInstance):
         # logging.info('value_changed %s %s %s' % (service, path, str(changes)))
 
-        self.inverterControl.watch(service, path, changes["Value"])
         self.mp2Control.watch(service, path, changes["Value"])
 
         # if path == "/Mode":
