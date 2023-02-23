@@ -104,7 +104,6 @@ class PVControl(object):
         self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self.value_changed_wrapper)
 
 	# Get dynamic servicename for rs6 (ve.can)
-        # self.vecan_service = self.waitForService('com.victronenergy.inverter')
         serviceList = self._get_service_having_lowest_instance('com.victronenergy.inverter')
         if not serviceList:
             # Restart process
