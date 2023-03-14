@@ -164,12 +164,35 @@ class PVControl(object):
         self.MaxPMp = 0
         self.MaxPRs = 0
 
+        self.canRestart = 0 # time of last canbus restart
+
         self.packVolt = 55.2 # 3.345 v per cell
 
-        GLib.timeout_add(10000, self.update)
-        # GLib.timeout_add(10000, exit_on_error, self.update)
+        # GLib.timeout_add(10000, self.update)
+        GLib.timeout_add(10000, exit_on_error, self.update)
 
     def update(self):
+
+        # Hack, check inverter, avoid "no inverters" error from systemcalc
+        mode = self._dbusmonitor.get_value(self.vecan_service, "/Mode")
+
+        if mode not in range(0, 5): # 0..4
+            logging.info(f"inverter/mode: {mode}, vecan communication seems dead :-(")
+
+            if (time.time() - self.canRestart) > 120:
+                logging.info(f"trying to restart can0 network interface! ...")
+                os.system("ifconfig can0 down; sleep 1; ifconfig can0 up")
+                self.canRestart = time.time()
+                logging.info(f"ifup/down done...")
+            else:
+                logging.info(f"restart pending...")
+
+            return True
+
+        logging.info(f"inverter/mode: {mode}, vecan communication seems ok :-)")
+        if self.canRestart:
+            logging.info(f"can restart duration: {time.time() - self.canRestart}")
+            self.canRestart = 0
 
         # log maximum power consumption (rs6 + mp2)
         # Note: /Ac/Out/L1/P of multiplus is none if it was never started
