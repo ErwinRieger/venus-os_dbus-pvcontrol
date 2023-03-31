@@ -23,7 +23,6 @@ onPower =   3000 # watts of rs6000 power when we turn on slave the multiplus, de
 OnTimeout = 1800
 
 servicename='com.victronenergy.pvcontrol'
-# servicename='de.ibrieger.pvcontrol' # xxx does not work with dbus-spy...
 
 # BMS function "CVL Charge voltage limit"
 HIGHESTCELLVOLTAGE = 3.45
@@ -189,7 +188,7 @@ class PVControl(object):
 
             return True
 
-        logging.info(f"inverter/mode: {mode}, vecan communication seems ok :-)")
+        # logging.info(f"inverter/mode: {mode}, vecan communication seems ok :-)")
         if self.canRestart:
             logging.info(f"can restart duration: {time.time() - self.canRestart}")
             self.canRestart = 0
