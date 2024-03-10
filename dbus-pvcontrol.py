@@ -20,13 +20,14 @@ from ve_utils import exit_on_error
 
 # onPower =   2750 # watts of rs6000 power when we turn on slave the multiplus, depends on ac current limit of multiplus (17.5A)
 onPower =   3000 # watts of rs6000 power when we turn on slave the multiplus, depends on ac current limit of multiplus (19.0A)
-OnTimeout = 1800
+OnTimeout = 3600
 
 servicename='com.victronenergy.pvcontrol'
 
 # BMS function "CVL Charge voltage limit"
-HIGHESTCELLVOLTAGE = 3.45
-FLOATCELLVOLTAGE = HIGHESTCELLVOLTAGE - 0.05 # hysteresis for charger control
+# HIGHESTCELLVOLTAGE = 3.45
+# HIGHESTCELLVOLTAGE = 3.4
+# FLOATCELLVOLTAGE = HIGHESTCELLVOLTAGE - 0.05 # hysteresis for charger control
 
 # inverter control
 # LOWESTCELLVOLTAGE = 3.0      # turn off inverter
@@ -86,7 +87,7 @@ class PVControl(object):
         dummy = {'code': None, 'whenToLog': 'configChange', 'accessLevel': None}
         dbus_tree= {
                 # rs 6000
-                'com.victronenergy.inverter': { '/Mode': dummy, '/Ac/Out/L1/P': dummy }  ,
+                'com.victronenergy.inverter': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy }  ,
                 # Multiplus 8000
                 'com.victronenergy.vebus': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy},
                 # watch cell voltages
@@ -152,6 +153,9 @@ class PVControl(object):
         self.watt = self._dbusmonitor.get_value(self.vecan_service, "/Ac/Out/L1/P") or 0
         logging.info('initial rs6 watts: %d' % self.watt)
 
+        invstate = self._dbusmonitor.get_value(self.vecan_service, "/State")
+        logging.info(f"initial rs6 state: {invstate}")
+
         # read initial value of mp2 state (modes: https://github.com/victronenergy/venus/wiki/dbus#vebus-systems-multis-quattros-inverters)
         # self.mp2state = self._dbusmonitor.get_value(self.vebus_service, "/Mode")
         # logging.info('initial mp2 mode: %d' % self.mp2state)
@@ -165,7 +169,7 @@ class PVControl(object):
 
         self.canRestart = 0 # time of last canbus restart
 
-        self.packVolt = 55.2 # 3.345 v per cell
+        # self.packVolt = 55.2 # 3.45 v per cell
 
         # GLib.timeout_add(10000, self.update)
         GLib.timeout_add(10000, exit_on_error, self.update)
@@ -207,10 +211,12 @@ class PVControl(object):
 
         # test timer timeout and switch off multiplus
         dt = self.endTimer - time.time()
+        inverterState = self._dbusmonitor.get_value(self.vecan_service, "/State")
+
         # if dt < 0 and self.mp2state != 4:
-        if dt < 0 and self.mp2Control.isOn():
+        if self.mp2Control.isOn() and ((inverterState != 9) or (dt < 0)):
             # switch off mp2
-            logging.info("stopping mp2...")
+            logging.info(f"stopping mp2, inverterState: {inverterState}, dt: {dt}...")
             # self._dbusmonitor.set_value(self.vebus_service, "/Mode", 4)
             self.mp2Control.turnOff()
 
