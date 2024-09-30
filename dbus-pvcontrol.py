@@ -3,9 +3,6 @@
 """
 * Raspi muss durch inverter oder batterie versorgt werden, damit das system
   bereit ist um grosse leistung beim einschalten der hausversorgung zu uebernehmen.
-
-Nice to have: set MaxPRs only if mp2 is inverting.
-
 """
 from gi.repository import GLib
 import platform
@@ -18,20 +15,10 @@ from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
 from ve_utils import exit_on_error
 
-# onPower =   2750 # watts of rs6000 power when we turn on slave the multiplus, depends on ac current limit of multiplus (17.5A)
-onPower =   3000 # watts of rs6000 power when we turn on slave the multiplus, depends on ac current limit of multiplus (19.0A)
+onPower =   3000 # watts of rs6000 power when we turn on the slave multiplus, depends on ac current limit of multiplus (19.0A)
 OnTimeout = 3600
 
 servicename='com.victronenergy.pvcontrol'
-
-# BMS function "CVL Charge voltage limit"
-# HIGHESTCELLVOLTAGE = 3.45
-# HIGHESTCELLVOLTAGE = 3.4
-# FLOATCELLVOLTAGE = HIGHESTCELLVOLTAGE - 0.05 # hysteresis for charger control
-
-# inverter control
-# LOWESTCELLVOLTAGE = 3.0      # turn off inverter
-# RECONNECTCELLVOLTAGE = 3.275 # about 50% SOC, note: inverter will reconnect at 52v
 
 # Manage on/off mode and state of multiplus, rs inverter and rs mpppt
 class DeviceControl(object):
@@ -104,7 +91,7 @@ class PVControl(object):
 
         self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self.value_changed_wrapper)
 
-	# Get dynamic servicename for rs6 (ve.can)
+        # Get dynamic servicename for rs6 (ve.can)
         serviceList = self._get_service_having_lowest_instance('com.victronenergy.inverter')
         if not serviceList:
             # Restart process
@@ -113,8 +100,7 @@ class PVControl(object):
         self.vecan_service = serviceList[0]
         logging.info("service of inverter rs6: " +  self.vecan_service)
 
-	# Get dynamic servicename for mp2 (ve.bus)
-        # self.vebus_service = self.waitForService('com.victronenergy.vebus')
+    	# Get dynamic servicename for mp2 (ve.bus)
         serviceList = self._get_service_having_lowest_instance('com.victronenergy.vebus')
         if not serviceList:
             # Restart process
@@ -170,9 +156,7 @@ class PVControl(object):
 
         self.canRestart = 0 # time of last canbus restart
 
-        # self.packVolt = 55.2 # 3.45 v per cell
-
-        # GLib.timeout_add(10000, self.update)
+        # GLib.timeout_add(1000, self.update)
         GLib.timeout_add(1000, exit_on_error, self.update)
 
     def update(self):
@@ -262,21 +246,6 @@ class PVControl(object):
                         self.maxPon = self.watt
                         self._dbusservice["/A/MaxPon"] = self.watt
                 self.endTimer = time.time() + OnTimeout
-
-    # Does not work, seems that _dbusmonitor does not re-scan the bus...
-    """
-    # Wait for and get dynamic servicename for rs6/mp2
-    def waitForService(self, sn):
-        serviceList = self._get_service_having_lowest_instance(sn)
-        while not serviceList:
-            logging.info("waiting for service %s..." % sn)
-            time.sleep(1)
-            serviceList = self._get_service_having_lowest_instance(sn)
-
-        service = serviceList[0]
-        logging.info("service for %s: %s" % (sn, service))
-        return service
-    """
 
     # returns a tuple (servicename, instance)
     def _get_service_having_lowest_instance(self, classfilter=None): 
