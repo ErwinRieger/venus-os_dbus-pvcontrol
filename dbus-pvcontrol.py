@@ -87,7 +87,8 @@ class PVControl(object):
         dummy = {'code': None, 'whenToLog': 'configChange', 'accessLevel': None}
         dbus_tree= {
                 # rs 6000
-                'com.victronenergy.inverter': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy }  ,
+                # 'com.victronenergy.inverter': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy }  ,
+                'com.victronenergy.inverter': { '/Mode': dummy, '/Ac/Out/L1/P': dummy }  ,
                 # Multiplus 8000
                 'com.victronenergy.vebus': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy},
                 # watch cell voltages
@@ -153,8 +154,8 @@ class PVControl(object):
         self.watt = self._dbusmonitor.get_value(self.vecan_service, "/Ac/Out/L1/P") or 0
         logging.info('initial rs6 watts: %d' % self.watt)
 
-        invstate = self._dbusmonitor.get_value(self.vecan_service, "/State")
-        logging.info(f"initial rs6 state: {invstate}")
+        # invstate = self._dbusmonitor.get_value(self.vecan_service, "/State")
+        # logging.info(f"initial rs6 state: {invstate}")
 
         # read initial value of mp2 state (modes: https://github.com/victronenergy/venus/wiki/dbus#vebus-systems-multis-quattros-inverters)
         # self.mp2state = self._dbusmonitor.get_value(self.vebus_service, "/Mode")
@@ -172,7 +173,7 @@ class PVControl(object):
         # self.packVolt = 55.2 # 3.45 v per cell
 
         # GLib.timeout_add(10000, self.update)
-        GLib.timeout_add(10000, exit_on_error, self.update)
+        GLib.timeout_add(1000, exit_on_error, self.update)
 
     def update(self):
 
@@ -211,12 +212,14 @@ class PVControl(object):
 
         # test timer timeout and switch off multiplus
         dt = self.endTimer - time.time()
-        inverterState = self._dbusmonitor.get_value(self.vecan_service, "/State")
+        # inverterState = self._dbusmonitor.get_value(self.vecan_service, "/State")
 
         # if dt < 0 and self.mp2state != 4:
-        if self.mp2Control.isOn() and ((inverterState != 9) or (dt < 0)):
+        # if self.mp2Control.isOn() and ((inverterState != 9) or (dt < 0)):
+        if self.mp2Control.isOn() and (dt < 0):
             # switch off mp2
-            logging.info(f"stopping mp2, inverterState: {inverterState}, dt: {dt}...")
+            # logging.info(f"stopping mp2, inverterState: {inverterState}, dt: {dt}...")
+            logging.info(f"stopping mp2, dt: {dt}...")
             # self._dbusmonitor.set_value(self.vebus_service, "/Mode", 4)
             self.mp2Control.turnOff()
 
