@@ -74,8 +74,7 @@ class PVControl(object):
         dummy = {'code': None, 'whenToLog': 'configChange', 'accessLevel': None}
         dbus_tree= {
                 # rs 6000
-                # 'com.victronenergy.inverter': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy }  ,
-                'com.victronenergy.inverter': { '/Mode': dummy, '/Ac/Out/L1/P': dummy }  ,
+                'com.victronenergy.inverter': { '/Mode': dummy, '/State': dummy, '/Ac/Out/L1/P': dummy }  ,
                 # Multiplus 8000
                 'com.victronenergy.vebus': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy},
                 # watch cell voltages
@@ -87,6 +86,7 @@ class PVControl(object):
                     # },
                 # read batt. voltage and control charging voltage
                 # 'com.victronenergy.solarcharger': { '/Link/ChargeVoltage': dummy, "/Dc/0/Voltage": dummy},
+                'com.victronenergy.system': { '/SystemState/DischargeDisabled': dummy},
                 }
 
         self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self.value_changed_wrapper)
@@ -139,15 +139,26 @@ class PVControl(object):
         # read initial value of rs6000 output power
         self.watt = self._dbusmonitor.get_value(self.vecan_service, "/Ac/Out/L1/P") or 0
         logging.info('initial rs6 watts: %d' % self.watt)
+        invmode = self._dbusmonitor.get_value(self.vecan_service, "/Mode")
+        logging.info('initial rs6 mode: %d' % invmode)
+        if invmode not in range(0, 5): # 0..4
+            logging.info(f"unknown rs6000 inverter/mode: {mode}, vecan communication seems dead :-(")
+            sys.exit(0)
 
         # invstate = self._dbusmonitor.get_value(self.vecan_service, "/State")
         # logging.info(f"initial rs6 state: {invstate}")
+
+        dischgDisabled = self._dbusmonitor.get_value("com.victronenergy.system", "/SystemState/DischargeDisabled")
+        logging.info(f'initial SystemState/DischargeDisabled: {dischgDisabled}')
 
         # read initial value of mp2 state (modes: https://github.com/victronenergy/venus/wiki/dbus#vebus-systems-multis-quattros-inverters)
         # self.mp2state = self._dbusmonitor.get_value(self.vebus_service, "/Mode")
         # logging.info('initial mp2 mode: %d' % self.mp2state)
 
         self.mp2Control = DeviceControl(self._dbusmonitor, self.vebus_service, "/Mode", 4, 3)      # multiplus
+
+        # DCL/RS6 hack
+        self.rsControl = DeviceControl(self._dbusmonitor, self.vecan_service, "/Mode", 4, 2)      # rs6000
 
         self.endTimer = 0
         self.maxPon = 0
@@ -156,8 +167,8 @@ class PVControl(object):
 
         self.canRestart = 0 # time of last canbus restart
 
-        # GLib.timeout_add(1000, self.update)
-        GLib.timeout_add(1000, exit_on_error, self.update)
+        GLib.timeout_add(1000, self.update)
+        # GLib.timeout_add(1000, exit_on_error, self.update)
 
     def update(self):
 
@@ -217,12 +228,14 @@ class PVControl(object):
 
     # Calls value_changed with exception handling
     def value_changed_wrapper(self, *args, **kwargs):
-        exit_on_error(self.value_changed, *args, **kwargs)
+        # exit_on_error(self.value_changed, *args, **kwargs)
+        self.value_changed(*args, **kwargs)
 
     def value_changed(self, service, path, options, changes, deviceInstance):
         # logging.info('value_changed %s %s %s' % (service, path, str(changes)))
 
         self.mp2Control.watch(service, path, changes["Value"])
+        self.rsControl.watch(service, path, changes["Value"])
 
         # if path == "/Mode":
 
@@ -231,21 +244,41 @@ class PVControl(object):
             # mp2state = changes["Value"]
             # self.mp2Control.setState(mp2state)
 
-        if service == self.vecan_service and path == "/Ac/Out/L1/P":
+        if service == self.vecan_service:
 
-            self.watt = changes["Value"]
-            # logging.info('update watt: %d' % self.watt)
+            if path == "/Ac/Out/L1/P":
 
-            if self.watt > onPower:
-                # if self.mp2state != 3:
-                if not self.mp2Control.isOn():
-                    logging.info("starting mp2..., watt: %d" % self.watt)
-                    # self._dbusmonitor.set_value(self.vebus_service, "/Mode", 3)
-                    self.mp2Control.turnOn()
-                    if self.watt > self.maxPon:
-                        self.maxPon = self.watt
-                        self._dbusservice["/A/MaxPon"] = self.watt
-                self.endTimer = time.time() + OnTimeout
+                self.watt = changes["Value"]
+                # logging.info('update watt: %d' % self.watt)
+
+                if self.watt > onPower:
+                    # if self.mp2state != 3:
+                    if not self.mp2Control.isOn():
+                        logging.info("starting mp2..., watt: %d" % self.watt)
+                        # self._dbusmonitor.set_value(self.vebus_service, "/Mode", 3)
+                        self.mp2Control.turnOn()
+                        if self.watt > self.maxPon:
+                            self.maxPon = self.watt
+                            self._dbusservice["/A/MaxPon"] = self.watt
+                    self.endTimer = time.time() + OnTimeout
+
+        elif service == "com.victronenergy.system":
+
+            # RS6000 DCL hack:
+            # It is not enough to set DCL to zero to turn off the rs6000, it turns on for short amounts of time
+            # every 2 minutes...
+            # Therefore we turn it of hard here using its /Mode dbus reg.
+            if path == "/SystemState/DischargeDisabled":
+
+                dischgDisabled = changes["Value"]
+                logging.info(f'/SystemState/DischargeDisabled changed to: {dischgDisabled}')
+
+                if dischgDisabled:
+                    if self.rsControl.isOn():
+                        self.rsControl.turnOff()
+                else:
+                    if not self.rsControl.isOn():
+                        self.rsControl.turnOn()
 
     # returns a tuple (servicename, instance)
     def _get_service_having_lowest_instance(self, classfilter=None): 
