@@ -10,10 +10,12 @@ import logging
 import sys
 import os, time
 
+from traceback import format_exc
+
 sys.path.insert(1, os.path.join(os.path.dirname(__file__), './ext/velib_python'))
 from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
-from ve_utils import exit_on_error
+# from ve_utils import exit_on_error
 
 onPower =   3000 # watts of rs6000 power when we turn on the slave multiplus, depends on ac current limit of multiplus (19.0A)
 OnTimeout = 3600
@@ -65,6 +67,20 @@ class DeviceControl(object):
     def getState(self):
         return self.state
 
+def my_exit_on_error(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except:
+        # try:
+        logging.info ('my_exit_on_error: there was an exception. Printing stacktrace will be tried and then exit')
+        logging.info(format_exc())
+        # except:
+            # pass
+
+        # sys.exit() is not used, since that throws an exception, which does not lead to a program
+        # halt when used in a dbus callback, see connection.py in the Python/Dbus libraries, line 230.
+        os._exit(1)
+
 class PVControl(object):
 
     def __init__(self, productname='IBR PV Control', connection='pvcontrol'):
@@ -86,7 +102,7 @@ class PVControl(object):
                     # },
                 # read batt. voltage and control charging voltage
                 # 'com.victronenergy.solarcharger': { '/Link/ChargeVoltage': dummy, "/Dc/0/Voltage": dummy},
-                'com.victronenergy.system': { '/SystemState/DischargeDisabled': dummy},
+                'com.victronenergy.system': { '/Dc/Battery/TimeToGo': dummy},
                 }
 
         self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self.value_changed_wrapper)
@@ -148,8 +164,8 @@ class PVControl(object):
         # invstate = self._dbusmonitor.get_value(self.vecan_service, "/State")
         # logging.info(f"initial rs6 state: {invstate}")
 
-        dischgDisabled = self._dbusmonitor.get_value("com.victronenergy.system", "/SystemState/DischargeDisabled")
-        logging.info(f'initial SystemState/DischargeDisabled: {dischgDisabled}')
+        timetogo = self._dbusmonitor.get_value("com.victronenergy.system", "/Dc/Battery/TimeToGo")
+        logging.info(f'initial system:/Dc/Battery/TimeToGo: {timetogo}')
 
         # read initial value of mp2 state (modes: https://github.com/victronenergy/venus/wiki/dbus#vebus-systems-multis-quattros-inverters)
         # self.mp2state = self._dbusmonitor.get_value(self.vebus_service, "/Mode")
@@ -167,8 +183,8 @@ class PVControl(object):
 
         self.canRestart = 0 # time of last canbus restart
 
-        GLib.timeout_add(1000, self.update)
-        # GLib.timeout_add(1000, exit_on_error, self.update)
+        # GLib.timeout_add(1000, self.update)
+        GLib.timeout_add(1000, my_exit_on_error, self.update)
 
     def update(self):
 
@@ -228,8 +244,8 @@ class PVControl(object):
 
     # Calls value_changed with exception handling
     def value_changed_wrapper(self, *args, **kwargs):
-        # exit_on_error(self.value_changed, *args, **kwargs)
-        self.value_changed(*args, **kwargs)
+        # self.value_changed(*args, **kwargs)
+        my_exit_on_error(self.value_changed, *args, **kwargs)
 
     def value_changed(self, service, path, options, changes, deviceInstance):
         # logging.info('value_changed %s %s %s' % (service, path, str(changes)))
@@ -268,17 +284,17 @@ class PVControl(object):
             # It is not enough to set DCL to zero to turn off the rs6000, it turns on for short amounts of time
             # every 2 minutes...
             # Therefore we turn it of hard here using its /Mode dbus reg.
-            if path == "/SystemState/DischargeDisabled":
+            if path == "/Dc/Battery/TimeToGo":
 
-                dischgDisabled = changes["Value"]
-                logging.info(f'/SystemState/DischargeDisabled changed to: {dischgDisabled}')
+                timetogo = changes["Value"]
+                logging.info(f'system:/Dc/Battery/TimeToGo changed to: {timetogo}')
 
-                if dischgDisabled:
-                    if self.rsControl.isOn():
-                        self.rsControl.turnOff()
-                else:
+                if timetogo:
                     if not self.rsControl.isOn():
                         self.rsControl.turnOn()
+                else:
+                    if self.rsControl.isOn():
+                        self.rsControl.turnOff()
 
     # returns a tuple (servicename, instance)
     def _get_service_having_lowest_instance(self, classfilter=None): 
