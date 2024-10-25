@@ -277,15 +277,16 @@ class PVControl(object):
             # Therefore we turn it of hard here using its /Mode dbus reg.
             if path == "/Dc/Battery/TimeToGo":
 
-                timetogo = changes["Value"] or 0
+                timetogo = changes["Value"]
                 logging.info(f'system:/Dc/Battery/TimeToGo changed to: {timetogo}')
 
-                if timetogo:
-                    if not self.rsControl.isOn():
-                        self.rsControl.turnOn()
-                else:
-                    if self.rsControl.isOn():
-                        self.rsControl.turnOff()
+                if timetogo != None:
+                    if timetogo > 0:
+                        if not self.rsControl.isOn():
+                            self.rsControl.turnOn()
+                    else:
+                        if self.rsControl.isOn():
+                            self.rsControl.turnOff()
 
     # returns a tuple (servicename, instance)
     def _get_service_having_lowest_instance(self, classfilter=None): 
