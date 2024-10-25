@@ -15,7 +15,7 @@ from traceback import format_exc
 sys.path.insert(1, os.path.join(os.path.dirname(__file__), './ext/velib_python'))
 from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
-# from ve_utils import exit_on_error
+from ve_utils import exit_on_error
 
 onPower =   3000 # watts of rs6000 power when we turn on the slave multiplus, depends on ac current limit of multiplus (19.0A)
 OnTimeout = 3600
@@ -66,20 +66,6 @@ class DeviceControl(object):
 
     def getState(self):
         return self.state
-
-def my_exit_on_error(func, *args, **kwargs):
-    try:
-        return func(*args, **kwargs)
-    except:
-        # try:
-        logging.info ('my_exit_on_error: there was an exception. Printing stacktrace will be tried and then exit')
-        logging.info(format_exc())
-        # except:
-            # pass
-
-        # sys.exit() is not used, since that throws an exception, which does not lead to a program
-        # halt when used in a dbus callback, see connection.py in the Python/Dbus libraries, line 230.
-        os._exit(1)
 
 class PVControl(object):
 
@@ -183,8 +169,7 @@ class PVControl(object):
 
         self.canRestart = 0 # time of last canbus restart
 
-        # GLib.timeout_add(1000, self.update)
-        GLib.timeout_add(1000, my_exit_on_error, self.update)
+        GLib.timeout_add(1000, exit_on_error, self.update)
 
     def update(self):
 
@@ -244,8 +229,7 @@ class PVControl(object):
 
     # Calls value_changed with exception handling
     def value_changed_wrapper(self, *args, **kwargs):
-        # self.value_changed(*args, **kwargs)
-        my_exit_on_error(self.value_changed, *args, **kwargs)
+        exit_on_error(self.value_changed, *args, **kwargs)
 
     def value_changed(self, service, path, options, changes, deviceInstance):
         # logging.info('value_changed %s %s %s' % (service, path, str(changes)))
