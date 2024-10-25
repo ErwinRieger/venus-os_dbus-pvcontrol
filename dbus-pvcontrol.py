@@ -161,6 +161,13 @@ class PVControl(object):
 
         # DCL/RS6 hack
         self.rsControl = DeviceControl(self._dbusmonitor, self.vecan_service, "/Mode", 4, 2)      # rs6000
+        if timetogo != None:
+            if timetogo > 0:
+                if not self.rsControl.isOn():
+                    self.rsControl.turnOn()
+            else:
+                if self.rsControl.isOn():
+                    self.rsControl.turnOff()
 
         self.endTimer = 0
         self.maxPon = 0
@@ -248,7 +255,7 @@ class PVControl(object):
 
             if path == "/Ac/Out/L1/P":
 
-                self.watt = changes["Value"]
+                self.watt = changes["Value"] or 0
                 # logging.info('update watt: %d' % self.watt)
 
                 if self.watt > onPower:
@@ -270,7 +277,7 @@ class PVControl(object):
             # Therefore we turn it of hard here using its /Mode dbus reg.
             if path == "/Dc/Battery/TimeToGo":
 
-                timetogo = changes["Value"]
+                timetogo = changes["Value"] or 0
                 logging.info(f'system:/Dc/Battery/TimeToGo changed to: {timetogo}')
 
                 if timetogo:
