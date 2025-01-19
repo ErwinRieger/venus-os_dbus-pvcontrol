@@ -17,7 +17,11 @@ from vedbus import VeDbusService
 from dbusmonitor import DbusMonitor
 from ve_utils import exit_on_error
 
-onPower =   3000 # watts of rs6000 power when we turn on the slave multiplus, depends on ac current limit of multiplus (19.0A)
+MAXPOWER = 6000 # RS6000 inverter
+ONPOWER =   MAXPOWER * 0.5 # watts of rs6000 power when we turn on the slave multiplus, depends on ac current limit of multiplus (19.0A)
+OFFPOWER = (ONPOWER * 2) / 3 # turn off mp2 when power is below offpower, to add some hysteresis
+LOGPOWER = MAXPOWER * 0.8 # log inverter power above this value
+
 OnTimeout = 3600
 
 servicename='com.victronenergy.pvcontrol'
@@ -258,7 +262,7 @@ class PVControl(object):
                 self.watt = changes["Value"] or 0
                 # logging.info('update watt: %d' % self.watt)
 
-                if self.watt > onPower:
+                if self.watt > ONPOWER:
                     # if self.mp2state != 3:
                     if not self.mp2Control.isOn():
                         logging.info("starting mp2..., watt: %d" % self.watt)
@@ -268,6 +272,9 @@ class PVControl(object):
                             self.maxPon = self.watt
                             self._dbusservice["/A/MaxPon"] = self.watt
                     self.endTimer = time.time() + OnTimeout
+
+                    if self.watt > LOGPOWER:
+                        logging.info("inverter power: %d" % self.watt)
 
         elif service == "com.victronenergy.system":
 
