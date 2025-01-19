@@ -29,44 +29,43 @@ servicename='com.victronenergy.pvcontrol'
 # Manage on/off mode and state of multiplus, rs inverter and rs mpppt
 class DeviceControl(object):
 
-    def __init__(self, dbusmonitor, serviceName, controlname, offmode, onmode):
+    def __init__(self, dbusmonitor, serviceCb, controlname, offmode, onmode):
         self.dbusmonitor = dbusmonitor
-        self.serviceName = serviceName
+        self.serviceCb = serviceCb
         self.controlname = controlname
         self.offmode = offmode
         self.onmode = onmode
 
-        self.devmode = dbusmonitor.get_value(serviceName, controlname)
-        logging.info(f"initial mode: {self.serviceName}:{self.controlname}: {self.devmode}")
+        self.devmode = None
+        if serviceCb():
+            self.devmode = self.dbusmonitor.get_value(serviceCb(), "/Mode")
 
+        logging.info(f"initial mode: {self.serviceCb()}:{self.controlname}: {self.devmode}")
         self.state = None
 
     def turnOff(self):
-        logging.info(f"DeviceControl: Turn off: {self.serviceName}:{self.controlname}")
-        self.dbusmonitor.set_value(self.serviceName, self.controlname, self.offmode)
+        logging.info(f"DeviceControl: Turn off: {self.serviceCb()}:{self.controlname}")
+        self.dbusmonitor.set_value(self.serviceCb(), self.controlname, self.offmode)
 
     def turnOn(self):
-        logging.info(f"DeviceControl: Turn on: {self.serviceName}:{self.controlname}")
-        self.dbusmonitor.set_value(self.serviceName, self.controlname, self.onmode)
-
-    # def setMode(self, mode):
-        # # logging.info('update mp2 mode: %s' % mode)
-        # logging.info(f"update mode: {self.serviceName}:{self.controlname}: {self.devmode}")
-        # self.devmode = mode
+        logging.info(f"DeviceControl: Turn on: {self.serviceCb()}:{self.controlname}")
+        self.dbusmonitor.set_value(self.serviceCb(), self.controlname, self.onmode)
 
     def isOn(self):
         return self.devmode == self.onmode
 
-    def watch(self, service, path, value):
-        # logging.info(f"watch: {self.serviceName} {service}: {path}")
+    def isOff(self):
+        return self.devmode == self.offmode
 
-        if service == self.serviceName:
-            if path == self.controlname:
-                logging.info(f"{self.serviceName}:{path}: set mode to:: {value}")
-                self.devmode = value
-            elif path == "/State":
-                logging.info(f"{self.serviceName}:{path}: set state to:: {value}")
-                self.state = value
+    def watch(self, path, value):
+        # logging.info(f"watch: {self.serviceCb()}:{path}")
+
+        if path == self.controlname:
+            logging.info(f"watch: {self.serviceCb()}:{path}: changed to:: {value}")
+            self.devmode = value
+        elif path == "/State":
+            logging.info(f"watch: {self.serviceCb()}:{path}: changed to:: {value}")
+            self.state = value
 
     def getState(self):
         return self.state
@@ -77,43 +76,62 @@ class PVControl(object):
 
         logging.debug("Service %s starting... "% servicename)
 
+        self.pvyield = {}
+
         dummy = {'code': None, 'whenToLog': 'configChange', 'accessLevel': None}
         dbus_tree= {
-                # rs 6000
+                # inverter rs 6000
                 'com.victronenergy.inverter': { '/Mode': dummy, '/State': dummy, '/Ac/Out/L1/P': dummy }  ,
+                # inverter multi rs, solarcharger
+                'com.victronenergy.multi': { '/Mode': dummy, '/State': dummy, '/Yield/User': dummy }  ,
                 # Multiplus 8000
                 'com.victronenergy.vebus': { '/Mode': dummy, '/Ac/Out/L1/P': dummy, "/State": dummy},
-                # watch cell voltages
-                # 'com.victronenergy.battery': {
-                    # "/System/MaxCellVoltage": dummy,
-                    # "/System/MaxVoltageCellId": dummy,
-                    # "/System/MinCellVoltage": dummy,
-                    # "/System/MinVoltageCellId": dummy,
-                    # },
-                # read batt. voltage and control charging voltage
-                # 'com.victronenergy.solarcharger': { '/Link/ChargeVoltage': dummy, "/Dc/0/Voltage": dummy},
+                # Solar chargers
+                'com.victronenergy.solarcharger': { '/Yield/User': dummy},
                 'com.victronenergy.system': { '/Dc/Battery/TimeToGo': dummy},
                 }
 
-        self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self.value_changed_wrapper)
+        self._dbusmonitor = DbusMonitor(dbus_tree, valueChangedCallback=self.value_changed_wrapper,
+                                        deviceAddedCallback=self.deviceAddedWrapper,
+                                        deviceRemovedCallback=self.deviceRemovedWrapper)
 
         # Get dynamic servicename for rs6 (ve.can)
         serviceList = self._get_service_having_lowest_instance('com.victronenergy.inverter')
-        if not serviceList:
+        if serviceList:
+            vecan_service = serviceList[0]
+        else:
             # Restart process
-            logging.info("service com.victronenergy.inverter not registered yet, exiting...")
-            sys.exit(0)
-        self.vecan_service = serviceList[0]
-        logging.info("service of inverter rs6: " +  self.vecan_service)
+            logging.info("note: service com.victronenergy.inverter not registered yet, exiting...")
+            # sys.exit(0)
+            vecan_service = None
+        logging.info(f"service of inverter rs6: {vecan_service}")
+
+        # Get dynamic servicename for multi-rs
+        serviceList = self._get_service_having_lowest_instance('com.victronenergy.multi')
+        if serviceList:
+            multi_service = serviceList[0]
+            self.pvyield[multi_service] = self._dbusmonitor.get_value(multi_service, "/Yield/User") or 0
+        else:
+            multi_service = None
+        logging.info(f"service of multi rs: {multi_service}")
+
+        self.maininverter = multi_service or vecan_service
 
     	# Get dynamic servicename for mp2 (ve.bus)
         serviceList = self._get_service_having_lowest_instance('com.victronenergy.vebus')
-        if not serviceList:
+        if serviceList:
+            self.vebus_service = serviceList[0]
+        else:
             # Restart process
-            logging.info("service com.victronenergy.vebus not registered yet, exiting...")
-            sys.exit(0)
-        self.vebus_service = serviceList[0]
-        logging.info("service of mp2: " + self.vebus_service)
+            logging.info("note: service com.victronenergy.vebus not registered yet, exiting...")
+            # sys.exit(0)
+            self.vebus_service = None
+        logging.info(f"service of mp2: {self.vebus_service}")
+
+        pvChargerServiceList = self._dbusmonitor.get_service_list(classfilter="com.victronenergy.solarcharger") or []
+        for charger in pvChargerServiceList:
+            logging.info(f"pvcharger: {charger}")
+            self.pvyield[charger] = self._dbusmonitor.get_value(charger, "/Yield/User") or 0
 
         self._dbusservice = VeDbusService(servicename)
 
@@ -135,42 +153,42 @@ class PVControl(object):
         self._dbusservice.add_path('/A/MaxPMp', 1)
         self._dbusservice.add_path('/A/MaxPRs', 1)
         self._dbusservice.add_path('/A/MaxPon', 1)
+        self._dbusservice.add_path('/TotalPVYield', 1)
 
         self._dbusservice['/A/P'] = 0
         self._dbusservice['/A/Timer'] = 0
         self._dbusservice['/A/MaxPMp'] = 0
         self._dbusservice['/A/MaxPRs'] = 0
         self._dbusservice['/A/MaxPon'] = 0
+        self._dbusservice['/TotalPVYield'] = sum(self.pvyield.values())
 
-        # read initial value of rs6000 output power
-        self.watt = self._dbusmonitor.get_value(self.vecan_service, "/Ac/Out/L1/P") or 0
-        logging.info('initial rs6 watts: %d' % self.watt)
-        invmode = self._dbusmonitor.get_value(self.vecan_service, "/Mode")
-        logging.info('initial rs6 mode: %d' % invmode)
-        if invmode not in range(0, 5): # 0..4
-            logging.info(f"unknown rs6000 inverter/mode: {mode}, vecan communication seems dead :-(")
-            sys.exit(0)
-
-        # invstate = self._dbusmonitor.get_value(self.vecan_service, "/State")
-        # logging.info(f"initial rs6 state: {invstate}")
+        # read initial value of rs6000 (or multi rs) output power
+        if self.maininverter:
+            self.watt = self._dbusmonitor.get_value(self.maininverter, "/Ac/Out/L1/P") or 0
+            logging.info('initial main inverter watts: %d' % self.watt)
+            invmode = self._dbusmonitor.get_value(self.maininverter, "/Mode")
+            logging.info('initial main inverter mode: %d' % invmode)
+            if invmode not in range(0, 5): # 0..4
+                logging.info(f"unknown main inverter inverter/mode: {mode}, vecan communication seems dead :-(")
+                sys.exit(0)
+        else:
+            self.watt = 0
 
         timetogo = self._dbusmonitor.get_value("com.victronenergy.system", "/Dc/Battery/TimeToGo")
         logging.info(f'initial system:/Dc/Battery/TimeToGo: {timetogo}')
 
-        # read initial value of mp2 state (modes: https://github.com/victronenergy/venus/wiki/dbus#vebus-systems-multis-quattros-inverters)
-        # self.mp2state = self._dbusmonitor.get_value(self.vebus_service, "/Mode")
-        # logging.info('initial mp2 mode: %d' % self.mp2state)
-
-        self.mp2Control = DeviceControl(self._dbusmonitor, self.vebus_service, "/Mode", 4, 3)      # multiplus
+        self.mp2Control = DeviceControl(self._dbusmonitor, self.getMultiPlusService, "/Mode", 4, 3)      # multiplus
 
         # DCL/RS6 hack
-        self.rsControl = DeviceControl(self._dbusmonitor, self.vecan_service, "/Mode", 4, 2)      # rs6000
+        self.rsControl = DeviceControl(self._dbusmonitor, self.getRSService, "/Mode", 1, 3)      # rs6000
         if timetogo != None:
             if timetogo > 0:
                 if not self.rsControl.isOn():
+                    logging.info("starting invertert ...")
                     self.rsControl.turnOn()
             else:
-                if self.rsControl.isOn():
+                if not self.rsControl.isOff():
+                    logging.info("stopping invertert ...")
                     self.rsControl.turnOff()
 
         self.endTimer = 0
@@ -178,36 +196,19 @@ class PVControl(object):
         self.MaxPMp = 0
         self.MaxPRs = 0
 
-        self.canRestart = 0 # time of last canbus restart
-
         GLib.timeout_add(1000, exit_on_error, self.update)
+
+    def getRSService(self):
+        return self.maininverter
+
+    def getMultiPlusService(self):
+        return self.vebus_service
 
     def update(self):
 
-        # Hack, check inverter, avoid "no inverters" error from systemcalc
-        mode = self._dbusmonitor.get_value(self.vecan_service, "/Mode")
-
-        if mode not in range(0, 5): # 0..4
-            logging.info(f"inverter/mode: {mode}, vecan communication seems dead :-(")
-
-            if (time.time() - self.canRestart) > 120:
-                logging.info(f"trying to restart can0 network interface! ...")
-                os.system("ifconfig can0 down; sleep 1; ifconfig can0 up")
-                self.canRestart = time.time()
-                logging.info(f"ifup/down done...")
-            else:
-                logging.info(f"restart pending...")
-
-            return True
-
-        # logging.info(f"inverter/mode: {mode}, vecan communication seems ok :-)")
-        if self.canRestart:
-            logging.info(f"can restart duration: {time.time() - self.canRestart}")
-            self.canRestart = 0
-
         # log maximum power consumption (rs6 + mp2)
         # Note: /Ac/Out/L1/P of multiplus is none if it was never started
-        p = self._dbusmonitor.get_value(self.vebus_service, "/Ac/Out/L1/P") or 0
+        p = (self.vebus_service and self._dbusmonitor.get_value(self.vebus_service, "/Ac/Out/L1/P")) or 0
         if p > self.MaxPMp:
             self._dbusservice["/A/MaxPMp"] = p
             self.MaxPMp = p
@@ -219,15 +220,12 @@ class PVControl(object):
 
         # test timer timeout and switch off multiplus
         dt = self.endTimer - time.time()
-        # inverterState = self._dbusmonitor.get_value(self.vecan_service, "/State")
 
         # if dt < 0 and self.mp2state != 4:
         # if self.mp2Control.isOn() and ((inverterState != 9) or (dt < 0)):
         if self.mp2Control.isOn() and (dt < 0):
             # switch off mp2
-            # logging.info(f"stopping mp2, inverterState: {inverterState}, dt: {dt}...")
             logging.info(f"stopping mp2, dt: {dt}...")
-            # self._dbusmonitor.set_value(self.vebus_service, "/Mode", 4)
             self.mp2Control.turnOff()
 
         self._dbusservice["/A/P"] = self.watt
@@ -242,11 +240,43 @@ class PVControl(object):
     def value_changed_wrapper(self, *args, **kwargs):
         exit_on_error(self.value_changed, *args, **kwargs)
 
+    def deviceAddedWrapper(self, *args, **kwargs):
+        exit_on_error(self.deviceAddedCallback, *args, **kwargs)
+
+    def deviceRemovedWrapper(self, *args, **kwargs):
+        exit_on_error(self.deviceRemovedCallback, *args, **kwargs)
+
+    def deviceAddedCallback(self, service, instance):
+        logging.info(f"dbus device added: {service}, {type(service)}, {instance}")
+
+        if service.startswith("com.victronenergy.inverter"):
+            logging.info(f"main inverter (rs) added...")
+            self.maininverter = service
+        elif service.startswith("com.victronenergy.multi"):
+            logging.info(f"main inverter (multi) added...")
+            self.maininverter = service
+            self.pvyield[service] = self._dbusmonitor.get_value(service, "/Yield/User") or 0
+            self._dbusservice['/TotalPVYield'] = sum(self.pvyield.values())
+        elif service.startswith("com.victronenergy.vebus"):
+            logging.info(f"multiplus added...")
+            self.vebus_service = service
+        elif service.startswith("com.victronenergy.solarcharger"):
+            logging.info(f"solarcharger added...")
+            self.pvyield[service] = self._dbusmonitor.get_value(service, "/Yield/User") or 1
+            self._dbusservice['/TotalPVYield'] = sum(self.pvyield.values())
+
+    def deviceRemovedCallback(self, service, instance):
+        logging.info(f"dbus device removed: {service}, {type(service)}, {instance}")
+
+        if service.startswith("com.victronenergy.inverter") or service.startswith("com.victronenergy.multi"):
+            logging.info(f"main inverter removed...")
+            self.maininverter = None
+        elif service.startswith("com.victronenergy.vebus"):
+            logging.info(f"multiplus removed...")
+            self.vebus_service = None
+
     def value_changed(self, service, path, options, changes, deviceInstance):
         # logging.info('value_changed %s %s %s' % (service, path, str(changes)))
-
-        self.mp2Control.watch(service, path, changes["Value"])
-        self.rsControl.watch(service, path, changes["Value"])
 
         # if path == "/Mode":
 
@@ -255,7 +285,9 @@ class PVControl(object):
             # mp2state = changes["Value"]
             # self.mp2Control.setState(mp2state)
 
-        if service == self.vecan_service:
+        if service == self.maininverter:
+
+            self.rsControl.watch(path, changes["Value"])
 
             if path == "/Ac/Out/L1/P":
 
@@ -263,11 +295,10 @@ class PVControl(object):
                 # logging.info('update watt: %d' % self.watt)
 
                 if self.watt > ONPOWER:
-                    # if self.mp2state != 3:
-                    if not self.mp2Control.isOn():
-                        logging.info("starting mp2..., watt: %d" % self.watt)
-                        # self._dbusmonitor.set_value(self.vebus_service, "/Mode", 3)
+                    if self.mp2Control.isOff():
+                        logging.info("Starting mp2..., watt: %d" % self.watt)
                         self.mp2Control.turnOn()
+
                         if self.watt > self.maxPon:
                             self.maxPon = self.watt
                             self._dbusservice["/A/MaxPon"] = self.watt
@@ -275,6 +306,10 @@ class PVControl(object):
 
                     if self.watt > LOGPOWER:
                         logging.info("inverter power: %d" % self.watt)
+
+        elif service == self.vebus_service:
+
+            self.mp2Control.watch(path, changes["Value"])
 
         elif service == "com.victronenergy.system":
 
@@ -290,22 +325,25 @@ class PVControl(object):
                 if timetogo != None:
                     if timetogo > 0:
                         if not self.rsControl.isOn():
+                            logging.info("starting inverter")
                             self.rsControl.turnOn()
                     else:
-                        if self.rsControl.isOn():
+                        if not self.rsControl.isOff():
+                            logging.info("stoppng inverter")
                             self.rsControl.turnOff()
+
+        # compute total pv yield
+        if path == "/Yield/User":
+            # logging.info(f"pvcharger, {service} yield: {changes['Value']}")
+            self.pvyield[service] = changes["Value"]
+            self._dbusservice["/TotalPVYield"] = sum(self.pvyield.values())
 
     # returns a tuple (servicename, instance)
     def _get_service_having_lowest_instance(self, classfilter=None): 
-        services = self._get_connected_service_list(classfilter=classfilter)
+        services = self._dbusmonitor.get_service_list(classfilter=classfilter)
         if len(services) == 0: return None
         s = sorted((value, key) for (key, value) in services.items())
         return (s[0][1], s[0][0])
-
-    def _get_connected_service_list(self, classfilter=None):
-        services = self._dbusmonitor.get_service_list(classfilter=classfilter)
-        # self._remove_unconnected_services(services)
-        return services
 
 # === All code below is to simply run it from the commandline for debugging purposes ===
 
