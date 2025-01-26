@@ -184,11 +184,11 @@ class PVControl(object):
         if timetogo != None:
             if timetogo > 0:
                 if not self.rsControl.isOn():
-                    logging.info("starting invertert ...")
+                    logging.info("starting inverter ...")
                     self.rsControl.turnOn()
             else:
                 if not self.rsControl.isOff():
-                    logging.info("stopping invertert ...")
+                    logging.info("stopping inverter ...")
                     self.rsControl.turnOff()
 
         self.endTimer = 0
@@ -345,28 +345,13 @@ class PVControl(object):
         s = sorted((value, key) for (key, value) in services.items())
         return (s[0][1], s[0][0])
 
-# === All code below is to simply run it from the commandline for debugging purposes ===
-
-# It will created a dbus service called com.victronenergy.pvinverter.output.
-# To try this on commandline, start this program in one terminal, and try these commands
-# from another terminal:
-# dbus com.victronenergy.pvinverter.output
-# dbus com.victronenergy.pvinverter.output /Ac/Energy/Forward GetValue
-# dbus com.victronenergy.pvinverter.output /Ac/Energy/Forward SetValue %20
-#
-# Above examples use this dbus client: http://code.google.com/p/dbus-tools/wiki/DBusCli
-# See their manual to explain the % in %20
-
 def main():
-
-    # set timezone used for log entries
-    # os.environ['TZ'] = 'Europe/Berlin'
-    # time.tzset()
 
     format = "%(asctime)s %(levelname)s:%(name)s:%(message)s"
     logging.basicConfig(level=logging.DEBUG, format=format, datefmt="%d.%m.%y_%X_%Z")
 
     from dbus.mainloop.glib import DBusGMainLoop
+
     # Have a mainloop, so we can send/receive asynchronous calls to and from dbus
     DBusGMainLoop(set_as_default=True)
 
