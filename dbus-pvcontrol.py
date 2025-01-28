@@ -184,11 +184,9 @@ class PVControl(object):
         if timetogo != None:
             if timetogo > 0:
                 if not self.rsControl.isOn():
-                    logging.info("starting inverter ...")
                     self.rsControl.turnOn()
             else:
                 if not self.rsControl.isOff():
-                    logging.info("stopping inverter ...")
                     self.rsControl.turnOff()
 
         self.endTimer = 0
@@ -225,7 +223,7 @@ class PVControl(object):
         # if self.mp2Control.isOn() and ((inverterState != 9) or (dt < 0)):
         if self.mp2Control.isOn() and (dt < 0):
             # switch off mp2
-            logging.info(f"stopping mp2, dt: {dt}...")
+            logging.info(f"stopping mp2...")
             self.mp2Control.turnOff()
 
         self._dbusservice["/A/P"] = self.watt
@@ -325,11 +323,9 @@ class PVControl(object):
                 if timetogo != None:
                     if timetogo > 0:
                         if not self.rsControl.isOn():
-                            logging.info("starting inverter")
                             self.rsControl.turnOn()
                     else:
                         if not self.rsControl.isOff():
-                            logging.info("stoppng inverter")
                             self.rsControl.turnOff()
 
         # compute total pv yield
