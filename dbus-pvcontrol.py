@@ -292,7 +292,7 @@ class PVControl(object):
                 self.watt = changes["Value"] or 0
                 # logging.info('update watt: %d' % self.watt)
 
-                if self.watt > ONPOWER:
+                if self.watt >= ONPOWER:
                     if self.mp2Control.isOff():
                         logging.info("Starting mp2..., watt: %d" % self.watt)
                         self.mp2Control.turnOn()
@@ -304,6 +304,9 @@ class PVControl(object):
 
                     if self.watt > LOGPOWER:
                         logging.info("inverter power: %d" % self.watt)
+
+                elif self.watt >= OFFPOWER:
+                    self.endTimer = time.time() + OnTimeout
 
         elif service == self.vebus_service:
 
