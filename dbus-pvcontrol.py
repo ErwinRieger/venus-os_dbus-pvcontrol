@@ -26,30 +26,70 @@ OnTimeout = 3600
 
 servicename='com.victronenergy.pvcontrol'
 
+# To map VEBus, Multiplus, VECan and Inverter RS states and
+# modes to strings
+mode_charger_only=1
+mode_on=3
+mode_off=4
+
+victron_mode_names = {
+        None: "None",
+        mode_charger_only: "Charger only",
+        2:"Inverter only",
+        mode_on: "On",
+        mode_off: "Off",
+        5:"Low Power/Eco",
+        251:"Passthrough",
+        252:"Standby",
+        253:"Hibernate",
+        }
+
+victron_state_names = {
+        None: "None",
+        0:"Off",
+        1:"Low Power",
+        2:"Fault",
+        3:"Bulk",
+        4:"Absorption",
+        5:"Float",
+        6:"Storage",
+        7:"Equalize",
+        8:"Passthrough",
+        9:"Inverting",
+        10:"Power assist",
+        11:"Power supply mode",
+        244:"Sustain(Prefer Renewable Energy)",
+        245:"Wake-up",
+        # 25-:"Blocked", ???
+        252:"External control",
+        }
+
+
 # Manage on/off mode and state of multiplus, rs inverter and rs mpppt
 class DeviceControl(object):
 
-    def __init__(self, dbusmonitor, serviceCb, controlname, offmode, onmode):
+    def __init__(self, dbusmonitor, serviceCb, offmode, onmode):
         self.dbusmonitor = dbusmonitor
         self.serviceCb = serviceCb
-        self.controlname = controlname
         self.offmode = offmode
         self.onmode = onmode
 
         self.devmode = None
+        self.state = None
         if serviceCb():
             self.devmode = self.dbusmonitor.get_value(serviceCb(), "/Mode")
+            self.state = self.dbusmonitor.get_value(serviceCb(), "/State")
 
-        logging.info(f"initial mode: {self.serviceCb()}:{self.controlname}: {self.devmode}")
-        self.state = None
+        logging.info(f"initial mode: {self.serviceCb()}:/Mode: {victron_mode_names[self.devmode]}")
+        logging.info(f"initial state: {self.serviceCb()}:/State: {victron_state_names[self.state]}")
 
     def turnOff(self):
-        logging.info(f"DeviceControl: Turn off: {self.serviceCb()}:{self.controlname}")
-        self.dbusmonitor.set_value(self.serviceCb(), self.controlname, self.offmode)
+        logging.info(f"DeviceControl: Turn off: {self.serviceCb()}:/Mode")
+        self.dbusmonitor.set_value(self.serviceCb(), "/Mode", self.offmode)
 
     def turnOn(self):
-        logging.info(f"DeviceControl: Turn on: {self.serviceCb()}:{self.controlname}")
-        self.dbusmonitor.set_value(self.serviceCb(), self.controlname, self.onmode)
+        logging.info(f"DeviceControl: Turn on: {self.serviceCb()}:/Mode")
+        self.dbusmonitor.set_value(self.serviceCb(), "/Mode", self.onmode)
 
     def isOn(self):
         return self.devmode == self.onmode
@@ -60,11 +100,11 @@ class DeviceControl(object):
     def watch(self, path, value):
         # logging.info(f"watch: {self.serviceCb()}:{path}")
 
-        if path == self.controlname:
-            logging.info(f"watch: {self.serviceCb()}:{path}: changed to:: {value}")
+        if path == "/Mode":
+            logging.info(f"watch: {self.serviceCb()}:{path}: changed from {victron_mode_names[self.devmode]} to {victron_mode_names[value]}")
             self.devmode = value
         elif path == "/State":
-            logging.info(f"watch: {self.serviceCb()}:{path}: changed to:: {value}")
+            logging.info(f"watch: {self.serviceCb()}:{path}: changed from {victron_state_names[self.state]} to {victron_state_names[value]}")
             self.state = value
 
     def getState(self):
@@ -167,9 +207,9 @@ class PVControl(object):
             self.watt = self._dbusmonitor.get_value(self.maininverter, "/Ac/Out/L1/P") or 0
             logging.info('initial main inverter watts: %d' % self.watt)
             invmode = self._dbusmonitor.get_value(self.maininverter, "/Mode")
-            logging.info('initial main inverter mode: %d' % invmode)
+            logging.info('initial main inverter mode: %d: %s' % (invmode, victron_mode_names[invmode]))
             if invmode not in range(0, 5): # 0..4
-                logging.info(f"unknown main inverter inverter/mode: {mode}, vecan communication seems dead :-(")
+                logging.info(f"unknown main inverter inverter/mode: {victron_mode_names[invmode]}, vecan communication seems dead :-(")
                 sys.exit(0)
         else:
             self.watt = 0
@@ -177,11 +217,11 @@ class PVControl(object):
         timetogo = self._dbusmonitor.get_value("com.victronenergy.system", "/Dc/Battery/TimeToGo")
         logging.info(f'initial system:/Dc/Battery/TimeToGo: {timetogo}')
 
-        self.mp2Control = DeviceControl(self._dbusmonitor, self.getMultiPlusService, "/Mode", 4, 3)      # multiplus
+        self.mp2Control = DeviceControl(self._dbusmonitor, self.getMultiPlusService, mode_off, mode_on)      # multiplus, 4=Off, 3=On
 
         # DCL/RS6 hack
-        self.rsControl = DeviceControl(self._dbusmonitor, self.getRSService, "/Mode", 1, 3)      # rs6000
-        if timetogo != None:
+        self.rsControl = DeviceControl(self._dbusmonitor, self.getRSService, mode_charger_only, mode_on)      # rs6000, 1=Charger only, 3=On
+        if timetogo != None: # No BMS, handled by inverter-timeout
             if timetogo > 0:
                 if not self.rsControl.isOn():
                     self.rsControl.turnOn()
@@ -189,7 +229,7 @@ class PVControl(object):
                 if not self.rsControl.isOff():
                     self.rsControl.turnOff()
 
-        self.endTimer = 0
+        self.endTimer = time.time() + OnTimeout 
         self.maxPon = 0
         self.MaxPMp = 0
         self.MaxPRs = 0
@@ -213,8 +253,9 @@ class PVControl(object):
 
             # State 8: passthrough, state 9: inverting, state 10: assisting
             # if self._dbusmonitor.get_value(self.vebus_service, "/State") == 10:
-            if self.mp2Control.getState() == 10:
+            if self.mp2Control.getState() == 10 and self.watt > self.MaxPRs:
                 self._dbusservice["/A/MaxPRs"] = self.watt
+                self.MaxPRs = self.watt
 
         # test timer timeout and switch off multiplus
         dt = self.endTimer - time.time()
@@ -276,13 +317,6 @@ class PVControl(object):
     def value_changed(self, service, path, options, changes, deviceInstance):
         # logging.info('value_changed %s %s %s' % (service, path, str(changes)))
 
-        # if path == "/Mode":
-
-            # self.mp2state = changes["Value"]
-            # logging.info('update mp2 mode: %s' % self.mp2state)
-            # mp2state = changes["Value"]
-            # self.mp2Control.setState(mp2state)
-
         if service == self.maininverter:
 
             self.rsControl.watch(path, changes["Value"])
@@ -300,13 +334,13 @@ class PVControl(object):
                         if self.watt > self.maxPon:
                             self.maxPon = self.watt
                             self._dbusservice["/A/MaxPon"] = self.watt
-                    self.endTimer = time.time() + OnTimeout
+                    self.endTimer = time.time() + OnTimeout # Start power-off timer
 
                     if self.watt > LOGPOWER:
                         logging.info("inverter power: %d" % self.watt)
 
                 elif self.watt >= OFFPOWER:
-                    self.endTimer = time.time() + OnTimeout
+                    self.endTimer = time.time() + OnTimeout # Re-Start power-off timer
 
         elif service == self.vebus_service:
 
@@ -323,7 +357,7 @@ class PVControl(object):
                 timetogo = changes["Value"]
                 logging.info(f'system:/Dc/Battery/TimeToGo changed to: {timetogo}')
 
-                if timetogo != None:
+                if timetogo != None: # No BMS, handled by inverter-timeout
                     if timetogo > 0:
                         if not self.rsControl.isOn():
                             self.rsControl.turnOn()
