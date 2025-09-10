@@ -221,13 +221,15 @@ class PVControl(object):
 
         # DCL/RS6 hack
         self.rsControl = DeviceControl(self._dbusmonitor, self.getRSService, mode_charger_only, mode_on)      # rs6000, 1=Charger only, 3=On
+        self.rsEndTimer = 0
         if timetogo != None: # No BMS, handled by inverter-timeout
             if timetogo > 0:
                 if not self.rsControl.isOn():
                     self.rsControl.turnOn()
             else:
-                if not self.rsControl.isOff():
-                    self.rsControl.turnOff()
+                # if not self.rsControl.isOff():
+                    # self.rsControl.turnOff()
+                self.rsEndTimer = time.time() + 3*60
 
         self.endTimer = time.time() + OnTimeout 
         self.maxPon = 0
@@ -266,6 +268,16 @@ class PVControl(object):
             # switch off mp2
             logging.info(f"stopping mp2...")
             self.mp2Control.turnOff()
+
+        if self.rsEndTimer:
+            dt = self.rsEndTimer - time.time()
+            logging.info(f"enddimer: {dt}")
+            if dt < 0:
+                if self.rsControl.isOn():
+                    # switch off rs inverter
+                    logging.info(f"stopping rs inverter...")
+                    self.rsControl.turnOff()
+                self.rsEndTimer = 0
 
         self._dbusservice["/A/P"] = self.watt
         if dt > 0:
@@ -361,9 +373,13 @@ class PVControl(object):
                     if timetogo > 0:
                         if not self.rsControl.isOn():
                             self.rsControl.turnOn()
+                        self.rsEndTimer = 0
                     else:
-                        if not self.rsControl.isOff():
-                            self.rsControl.turnOff()
+                        # if not self.rsControl.isOff():
+                            # self.rsControl.turnOff()
+                        self.rsEndTimer = time.time() + 3*60
+                else:
+                    self.rsEndTimer = 0
 
         # compute total pv yield
         if path == "/Yield/User":
